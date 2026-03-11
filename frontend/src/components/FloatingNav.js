@@ -13,18 +13,26 @@ export default function FloatingNav() {
   const [cartCount, setCartCount] = useState(0);
 
   useEffect(() => {
+    // Only check auth once on mount, not on every route change
     checkAuth();
+  }, []);
+
+  useEffect(() => {
+    // Fetch cart count when user changes
     if (user) {
       fetchCartCount();
     }
-  }, [location.pathname]);
+  }, [user]);
 
   const checkAuth = async () => {
     try {
       const response = await axios.get(`${API}/auth/me`, { withCredentials: true });
       setUser(response.data);
     } catch (error) {
-      setUser(null);
+      // Don't set user to null if request fails - keep existing state
+      if (error.response?.status === 401) {
+        setUser(null);
+      }
     }
   };
 
