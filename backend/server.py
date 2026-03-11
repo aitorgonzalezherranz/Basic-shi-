@@ -1,15 +1,16 @@
-from fastapi import FastAPI, APIRouter
+from fastapi import FastAPI, APIRouter, HTTPException, Request, Response, Cookie
+from fastapi.responses import JSONResponse
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
 import os
 import logging
 from pathlib import Path
-from pydantic import BaseModel, Field, ConfigDict
-from typing import List
+from pydantic import BaseModel, Field, ConfigDict, EmailStr
+from typing import List, Optional
 import uuid
-from datetime import datetime, timezone
-
+from datetime import datetime, timezone, timedelta
+import httpx
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -25,46 +26,328 @@ app = FastAPI()
 # Create a router with the /api prefix
 api_router = APIRouter(prefix="/api")
 
+# ==================== MODELS ====================
 
-# Define Models
-class StatusCheck(BaseModel):
-    model_config = ConfigDict(extra="ignore")  # Ignore MongoDB's _id field
+class User(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    user_id: str
+    email: EmailStr
+    name: str
+    picture: Optional[str] = None
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+class UserSession(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    user_id: str
+    session_token: str
+    expires_at: datetime
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+class Product(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    product_id: str = Field(default_factory=lambda: f"prod_{uuid.uuid4().hex[:12]}")
+    name: str
+    description: str
+    price: float
+    category: str
+    brand: Optional[str] = None
+    image_url: str
+    stock: int = 100
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+class ProductCreate(BaseModel):
+    name: str
+    description: str
+    price: float
+    category: str
+    brand: Optional[str] = None
+    image_url: str
+    stock: int = 100
+
+class CartItem(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    cart_item_id: str = Field(default_factory=lambda: f"cart_{uuid.uuid4().hex[:12]}")
+    user_id: str
+    product_id: str
+    quantity: int
+    added_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+class CartItemCreate(BaseModel):
+    product_id: str
+    quantity: int = 1
+
+class Order(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    order_id: str = Field(default_factory=lambda: f"order_{uuid.uuid4().hex[:12]}")
+    user_id: str
+    items: List[dict]
+    total: float
+    status: str = "pending"
+    paypal_order_id: Optional[str] = None
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+class OrderCreate(BaseModel):
+    items: List[dict]
+    total: float
+
+# ==================== AUTH HELPERS ====================
+
+async def get_current_user(request: Request, session_token: Optional[str] = Cookie(None)) -> User:
+    # Check cookie first, then Authorization header
+    token = session_token
+    if not token:
+        auth_header = request.headers.get("Authorization")
+        if auth_header and auth_header.startswith("Bearer "):
+            token = auth_header.split(" ")[1]
     
-    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
-    client_name: str
-    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    if not token:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    
+    session_doc = await db.user_sessions.find_one({"session_token": token}, {"_id": 0})
+    if not session_doc:
+        raise HTTPException(status_code=401, detail="Invalid session")
+    
+    # Check expiry
+    expires_at = session_doc["expires_at"]
+    if isinstance(expires_at, str):
+        expires_at = datetime.fromisoformat(expires_at)
+    if expires_at.tzinfo is None:
+        expires_at = expires_at.replace(tzinfo=timezone.utc)
+    if expires_at < datetime.now(timezone.utc):
+        raise HTTPException(status_code=401, detail="Session expired")
+    
+    user_doc = await db.users.find_one({"user_id": session_doc["user_id"]}, {"_id": 0})
+    if not user_doc:
+        raise HTTPException(status_code=401, detail="User not found")
+    
+    return User(**user_doc)
 
-class StatusCheckCreate(BaseModel):
-    client_name: str
+# ==================== AUTH ROUTES ====================
 
-# Add your routes to the router instead of directly to app
+@api_router.post("/auth/session")
+async def create_session(request: Request, response: Response):
+    data = await request.json()
+    session_id = data.get("session_id")
+    
+    if not session_id:
+        raise HTTPException(status_code=400, detail="session_id required")
+    
+    # Call Emergent Auth API
+    async with httpx.AsyncClient() as client:
+        resp = await client.get(
+            "https://demobackend.emergentagent.com/auth/v1/env/oauth/session-data",
+            headers={"X-Session-ID": session_id}
+        )
+        if resp.status_code != 200:
+            raise HTTPException(status_code=400, detail="Invalid session_id")
+        
+        auth_data = resp.json()
+    
+    # Create or update user
+    user_id = f"user_{uuid.uuid4().hex[:12]}"
+    existing_user = await db.users.find_one({"email": auth_data["email"]}, {"_id": 0})
+    
+    if existing_user:
+        user_id = existing_user["user_id"]
+        await db.users.update_one(
+            {"user_id": user_id},
+            {"$set": {
+                "name": auth_data["name"],
+                "picture": auth_data["picture"]
+            }}
+        )
+    else:
+        user_doc = {
+            "user_id": user_id,
+            "email": auth_data["email"],
+            "name": auth_data["name"],
+            "picture": auth_data["picture"],
+            "created_at": datetime.now(timezone.utc).isoformat()
+        }
+        await db.users.insert_one(user_doc)
+    
+    # Create session
+    session_token = auth_data["session_token"]
+    expires_at = datetime.now(timezone.utc) + timedelta(days=7)
+    
+    session_doc = {
+        "user_id": user_id,
+        "session_token": session_token,
+        "expires_at": expires_at.isoformat(),
+        "created_at": datetime.now(timezone.utc).isoformat()
+    }
+    await db.user_sessions.insert_one(session_doc)
+    
+    # Set cookie
+    response.set_cookie(
+        key="session_token",
+        value=session_token,
+        httponly=True,
+        secure=True,
+        samesite="none",
+        max_age=7*24*60*60,
+        path="/"
+    )
+    
+    user = await db.users.find_one({"user_id": user_id}, {"_id": 0})
+    return {**user, "session_token": session_token}
+
+@api_router.get("/auth/me")
+async def get_me(request: Request, session_token: Optional[str] = Cookie(None)):
+    user = await get_current_user(request, session_token)
+    return user
+
+@api_router.post("/auth/logout")
+async def logout(request: Request, response: Response, session_token: Optional[str] = Cookie(None)):
+    if session_token:
+        await db.user_sessions.delete_one({"session_token": session_token})
+    response.delete_cookie("session_token", path="/")
+    return {"message": "Logged out"}
+
+# ==================== PRODUCT ROUTES ====================
+
+@api_router.get("/products", response_model=List[Product])
+async def get_products(category: Optional[str] = None):
+    query = {} if not category else {"category": category}
+    products = await db.products.find(query, {"_id": 0}).to_list(1000)
+    return products
+
+@api_router.get("/products/{product_id}", response_model=Product)
+async def get_product(product_id: str):
+    product = await db.products.find_one({"product_id": product_id}, {"_id": 0})
+    if not product:
+        raise HTTPException(status_code=404, detail="Product not found")
+    return product
+
+@api_router.post("/products", response_model=Product)
+async def create_product(product: ProductCreate):
+    product_obj = Product(**product.model_dump())
+    doc = product_obj.model_dump()
+    doc["created_at"] = doc["created_at"].isoformat()
+    await db.products.insert_one(doc)
+    return product_obj
+
+# ==================== CART ROUTES ====================
+
+@api_router.get("/cart")
+async def get_cart(request: Request, session_token: Optional[str] = Cookie(None)):
+    user = await get_current_user(request, session_token)
+    cart_items = await db.cart_items.find({"user_id": user.user_id}, {"_id": 0}).to_list(1000)
+    
+    # Enrich with product details
+    enriched_items = []
+    for item in cart_items:
+        product = await db.products.find_one({"product_id": item["product_id"]}, {"_id": 0})
+        if product:
+            enriched_items.append({
+                **item,
+                "product": product
+            })
+    
+    return enriched_items
+
+@api_router.post("/cart")
+async def add_to_cart(cart_item: CartItemCreate, request: Request, session_token: Optional[str] = Cookie(None)):
+    user = await get_current_user(request, session_token)
+    
+    # Check if already in cart
+    existing = await db.cart_items.find_one(
+        {"user_id": user.user_id, "product_id": cart_item.product_id},
+        {"_id": 0}
+    )
+    
+    if existing:
+        # Update quantity
+        new_quantity = existing["quantity"] + cart_item.quantity
+        await db.cart_items.update_one(
+            {"cart_item_id": existing["cart_item_id"]},
+            {"$set": {"quantity": new_quantity}}
+        )
+        return {"message": "Cart updated", "cart_item_id": existing["cart_item_id"]}
+    
+    # Create new cart item
+    cart_obj = CartItem(user_id=user.user_id, **cart_item.model_dump())
+    doc = cart_obj.model_dump()
+    doc["added_at"] = doc["added_at"].isoformat()
+    await db.cart_items.insert_one(doc)
+    return {"message": "Added to cart", "cart_item_id": cart_obj.cart_item_id}
+
+@api_router.delete("/cart/{cart_item_id}")
+async def remove_from_cart(cart_item_id: str, request: Request, session_token: Optional[str] = Cookie(None)):
+    user = await get_current_user(request, session_token)
+    result = await db.cart_items.delete_one({"cart_item_id": cart_item_id, "user_id": user.user_id})
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Cart item not found")
+    return {"message": "Removed from cart"}
+
+@api_router.put("/cart/{cart_item_id}")
+async def update_cart_item(cart_item_id: str, quantity: int, request: Request, session_token: Optional[str] = Cookie(None)):
+    user = await get_current_user(request, session_token)
+    result = await db.cart_items.update_one(
+        {"cart_item_id": cart_item_id, "user_id": user.user_id},
+        {"$set": {"quantity": quantity}}
+    )
+    if result.modified_count == 0:
+        raise HTTPException(status_code=404, detail="Cart item not found")
+    return {"message": "Cart updated"}
+
+# ==================== ORDER ROUTES ====================
+
+@api_router.post("/orders")
+async def create_order(order: OrderCreate, request: Request, session_token: Optional[str] = Cookie(None)):
+    user = await get_current_user(request, session_token)
+    
+    order_obj = Order(user_id=user.user_id, **order.model_dump())
+    doc = order_obj.model_dump()
+    doc["created_at"] = doc["created_at"].isoformat()
+    await db.orders.insert_one(doc)
+    
+    # Clear cart
+    await db.cart_items.delete_many({"user_id": user.user_id})
+    
+    return order_obj
+
+@api_router.get("/orders")
+async def get_orders(request: Request, session_token: Optional[str] = Cookie(None)):
+    user = await get_current_user(request, session_token)
+    orders = await db.orders.find({"user_id": user.user_id}, {"_id": 0}).sort("created_at", -1).to_list(1000)
+    return orders
+
+@api_router.patch("/orders/{order_id}")
+async def update_order(order_id: str, status: str, paypal_order_id: Optional[str] = None, request: Request = None, session_token: Optional[str] = Cookie(None)):
+    user = await get_current_user(request, session_token)
+    update_data = {"status": status}
+    if paypal_order_id:
+        update_data["paypal_order_id"] = paypal_order_id
+    
+    result = await db.orders.update_one(
+        {"order_id": order_id, "user_id": user.user_id},
+        {"$set": update_data}
+    )
+    if result.modified_count == 0:
+        raise HTTPException(status_code=404, detail="Order not found")
+    return {"message": "Order updated"}
+
+# ==================== GENERAL ROUTES ====================
+
 @api_router.get("/")
 async def root():
-    return {"message": "Hello World"}
+    return {"message": "Basic Shi API"}
 
-@api_router.post("/status", response_model=StatusCheck)
-async def create_status_check(input: StatusCheckCreate):
-    status_dict = input.model_dump()
-    status_obj = StatusCheck(**status_dict)
-    
-    # Convert to dict and serialize datetime to ISO string for MongoDB
-    doc = status_obj.model_dump()
-    doc['timestamp'] = doc['timestamp'].isoformat()
-    
-    _ = await db.status_checks.insert_one(doc)
-    return status_obj
-
-@api_router.get("/status", response_model=List[StatusCheck])
-async def get_status_checks():
-    # Exclude MongoDB's _id field from the query results
-    status_checks = await db.status_checks.find({}, {"_id": 0}).to_list(1000)
-    
-    # Convert ISO string timestamps back to datetime objects
-    for check in status_checks:
-        if isinstance(check['timestamp'], str):
-            check['timestamp'] = datetime.fromisoformat(check['timestamp'])
-    
-    return status_checks
+@api_router.get("/categories")
+async def get_categories():
+    return {
+        "categories": [
+            "perfumes",
+            "auriculares",
+            "zapatillas",
+            "mochilas",
+            "altavoces",
+            "relojes",
+            "ropa",
+            "gorras"
+        ]
+    }
 
 # Include the router in the main app
 app.include_router(api_router)
