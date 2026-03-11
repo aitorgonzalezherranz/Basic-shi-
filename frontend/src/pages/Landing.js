@@ -1,8 +1,27 @@
 import { useNavigate } from "react-router-dom";
-import { ChevronRight } from "lucide-react";
+import { ChevronRight, User } from "lucide-react";
+import { useState, useEffect } from "react";
+import axios from "axios";
+
+const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
+const API = `${BACKEND_URL}/api`;
 
 export default function Landing() {
   const navigate = useNavigate();
+  const [user, setUser] = useState(null);
+
+  useEffect(() => {
+    checkAuth();
+  }, []);
+
+  const checkAuth = async () => {
+    try {
+      const response = await axios.get(`${API}/auth/me`, { withCredentials: true });
+      setUser(response.data);
+    } catch (error) {
+      setUser(null);
+    }
+  };
 
   const handleLogin = () => {
     // REMINDER: DO NOT HARDCODE THE URL, OR ADD ANY FALLBACKS OR REDIRECT URLS, THIS BREAKS THE AUTH
@@ -44,13 +63,24 @@ export default function Landing() {
           >
             Shop
           </button>
-          <button
-            onClick={handleLogin}
-            className="btn-secondary text-sm"
-            data-testid="landing-nav-login"
-          >
-            Sign In
-          </button>
+          {user ? (
+            <button
+              onClick={() => navigate(user.is_admin ? '/admin' : '/dashboard')}
+              className="btn-secondary text-sm flex items-center gap-2"
+              data-testid="landing-nav-dashboard"
+            >
+              <User className="w-4 h-4" />
+              {user.is_admin ? 'Admin' : 'Dashboard'}
+            </button>
+          ) : (
+            <button
+              onClick={handleLogin}
+              className="btn-secondary text-sm"
+              data-testid="landing-nav-login"
+            >
+              Sign In
+            </button>
+          )}
         </div>
       </nav>
 
