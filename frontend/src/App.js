@@ -8,7 +8,11 @@ import Checkout from "@/pages/Checkout";
 import Dashboard from "@/pages/Dashboard";
 import AuthCallback from "@/components/AuthCallback";
 import ProtectedRoute from "@/components/ProtectedRoute";
+import AdminRoute from "@/components/AdminRoute";
 import FloatingNav from "@/components/FloatingNav";
+import AdminDashboard from "@/pages/admin/AdminDashboard";
+import AdminProducts from "@/pages/admin/AdminProducts";
+import AdminOrders from "@/pages/admin/AdminOrders";
 import { Toaster } from "@/components/ui/sonner";
 
 function AppRouter() {
@@ -19,7 +23,7 @@ function AppRouter() {
     return <AuthCallback />;
   }
   
-  const hideNav = location.pathname === '/';
+  const hideNav = location.pathname === '/' || location.pathname.startsWith('/admin');
   
   return (
     <>
@@ -31,6 +35,11 @@ function AppRouter() {
         <Route path="/cart" element={<ProtectedRoute><Cart /></ProtectedRoute>} />
         <Route path="/checkout" element={<ProtectedRoute><Checkout /></ProtectedRoute>} />
         <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
+        
+        {/* Admin Routes */}
+        <Route path="/admin" element={<AdminRoute><AdminDashboard /></AdminRoute>} />
+        <Route path="/admin/products" element={<AdminRoute><AdminProducts /></AdminRoute>} />
+        <Route path="/admin/orders" element={<AdminRoute><AdminOrders /></AdminRoute>} />
       </Routes>
     </>
   );

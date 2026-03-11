@@ -26,6 +26,9 @@ app = FastAPI()
 # Create a router with the /api prefix
 api_router = APIRouter(prefix="/api")
 
+# Admin emails - Users with these emails will have admin access
+ADMIN_EMAILS = os.environ.get('ADMIN_EMAILS', '').split(',')
+
 # ==================== MODELS ====================
 
 class User(BaseModel):
@@ -34,6 +37,7 @@ class User(BaseModel):
     email: EmailStr
     name: str
     picture: Optional[str] = None
+    is_admin: bool = False
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 class UserSession(BaseModel):
@@ -122,6 +126,12 @@ async def get_current_user(request: Request, session_token: Optional[str] = Cook
     
     return User(**user_doc)
 
+async def get_admin_user(request: Request, session_token: Optional[str] = Cookie(None)) -> User:
+    user = await get_current_user(request, session_token)
+    if not user.is_admin:
+        raise HTTPException(status_code=403, detail="Admin access required")
+    return user
+
 # ==================== AUTH ROUTES ====================
 
 @api_router.post("/auth/session")
@@ -147,13 +157,21 @@ async def create_session(request: Request, response: Response):
     user_id = f"user_{uuid.uuid4().hex[:12]}"
     existing_user = await db.users.find_one({"email": auth_data["email"]}, {"_id": 0})
     
+    # Check if this should be an admin user
+    is_admin = auth_data["email"] in ADMIN_EMAILS if ADMIN_EMAILS else False
+    # First user becomes admin if no admin emails configured
+    if not ADMIN_EMAILS:
+        user_count = await db.users.count_documents({})
+        is_admin = user_count == 0
+    
     if existing_user:
         user_id = existing_user["user_id"]
         await db.users.update_one(
             {"user_id": user_id},
             {"$set": {
                 "name": auth_data["name"],
-                "picture": auth_data["picture"]
+                "picture": auth_data["picture"],
+                "is_admin": is_admin
             }}
         )
     else:
@@ -162,6 +180,7 @@ async def create_session(request: Request, response: Response):
             "email": auth_data["email"],
             "name": auth_data["name"],
             "picture": auth_data["picture"],
+            "is_admin": is_admin,
             "created_at": datetime.now(timezone.utc).isoformat()
         }
         await db.users.insert_one(user_doc)
@@ -348,6 +367,94 @@ async def get_categories():
             "gorras"
         ]
     }
+
+# ==================== ADMIN ROUTES ====================
+
+@api_router.get("/admin/stats")
+async def get_admin_stats(request: Request, session_token: Optional[str] = Cookie(None)):
+    admin = await get_admin_user(request, session_token)
+    
+    # Get statistics
+    total_products = await db.products.count_documents({})
+    total_orders = await db.orders.count_documents({})
+    total_users = await db.users.count_documents({})
+    
+    # Calculate total revenue
+    orders = await db.orders.find({}, {"_id": 0, "total": 1, "status": 1}).to_list(10000)
+    total_revenue = sum(order["total"] for order in orders if order.get("status") == "completed")
+    pending_revenue = sum(order["total"] for order in orders if order.get("status") == "pending")
+    
+    # Recent orders
+    recent_orders = await db.orders.find({}, {"_id": 0}).sort("created_at", -1).limit(5).to_list(5)
+    
+    return {
+        "total_products": total_products,
+        "total_orders": total_orders,
+        "total_users": total_users,
+        "total_revenue": round(total_revenue, 2),
+        "pending_revenue": round(pending_revenue, 2),
+        "recent_orders": recent_orders
+    }
+
+@api_router.get("/admin/orders")
+async def get_all_orders(request: Request, session_token: Optional[str] = Cookie(None)):
+    admin = await get_admin_user(request, session_token)
+    orders = await db.orders.find({}, {"_id": 0}).sort("created_at", -1).to_list(10000)
+    
+    # Enrich with user info
+    enriched_orders = []
+    for order in orders:
+        user = await db.users.find_one({"user_id": order["user_id"]}, {"_id": 0, "name": 1, "email": 1})
+        enriched_orders.append({
+            **order,
+            "user_info": user if user else {"name": "Unknown", "email": "unknown@example.com"}
+        })
+    
+    return enriched_orders
+
+@api_router.patch("/admin/orders/{order_id}/status")
+async def update_order_status_admin(order_id: str, status: str, request: Request = None, session_token: Optional[str] = Cookie(None)):
+    admin = await get_admin_user(request, session_token)
+    
+    result = await db.orders.update_one(
+        {"order_id": order_id},
+        {"$set": {"status": status}}
+    )
+    if result.modified_count == 0:
+        raise HTTPException(status_code=404, detail="Order not found")
+    return {"message": "Order status updated"}
+
+@api_router.put("/admin/products/{product_id}")
+async def update_product_admin(product_id: str, product: ProductCreate, request: Request = None, session_token: Optional[str] = Cookie(None)):
+    admin = await get_admin_user(request, session_token)
+    
+    update_data = product.model_dump()
+    result = await db.products.update_one(
+        {"product_id": product_id},
+        {"$set": update_data}
+    )
+    if result.modified_count == 0:
+        raise HTTPException(status_code=404, detail="Product not found")
+    return {"message": "Product updated"}
+
+@api_router.delete("/admin/products/{product_id}")
+async def delete_product_admin(product_id: str, request: Request = None, session_token: Optional[str] = Cookie(None)):
+    admin = await get_admin_user(request, session_token)
+    
+    result = await db.products.delete_one({"product_id": product_id})
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Product not found")
+    return {"message": "Product deleted"}
+
+@api_router.post("/admin/products")
+async def create_product_admin(product: ProductCreate, request: Request = None, session_token: Optional[str] = Cookie(None)):
+    admin = await get_admin_user(request, session_token)
+    
+    product_obj = Product(**product.model_dump())
+    doc = product_obj.model_dump()
+    doc["created_at"] = doc["created_at"].isoformat()
+    await db.products.insert_one(doc)
+    return product_obj
 
 # Include the router in the main app
 app.include_router(api_router)
