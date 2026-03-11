@@ -1,0 +1,133 @@
+{
+  "brand_identity": {
+    "name": "Basic Shi",
+    "description": "Premium streetwear and lifestyle essentials for the modern teenager. Minimalist, dark, and hype-driven.",
+    "persona": "The Midnight Architect - Precision, stealth, and quiet confidence.",
+    "aesthetics": "Apple Dark Mode x Neo-Brutalism. High contrast, vast negative space, and surgical typography."
+  },
+  "typography": {
+    "font_family": {
+      "headings": "Space Grotesk, sans-serif",
+      "body": "Inter, sans-serif",
+      "mono": "JetBrains Mono, monospace"
+    },
+    "scale": {
+      "display": "text-6xl md:text-8xl font-bold tracking-tighter",
+      "h1": "text-4xl md:text-5xl font-semibold tracking-tight",
+      "h2": "text-3xl font-medium tracking-tight",
+      "h3": "text-2xl font-medium",
+      "body_lg": "text-lg leading-relaxed text-muted-foreground",
+      "body_base": "text-base leading-relaxed text-muted-foreground",
+      "caption": "text-sm text-muted-foreground uppercase tracking-widest"
+    },
+    "imports": [
+      "@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=Space+Grotesk:wght@400;500;600;700&display=swap');"
+    ]
+  },
+  "colors": {
+    "palette": {
+      "background": "#050505",
+      "surface": "#0A0A0A",
+      "surface_highlight": "#171717",
+      "border": "#262626",
+      "primary": "#FFFFFF",
+      "primary_foreground": "#000000",
+      "secondary": "#27272A",
+      "secondary_foreground": "#FFFFFF",
+      "muted": "#737373",
+      "accent": "#2563EB",
+      "success": "#10B981",
+      "error": "#EF4444"
+    },
+    "gradients": {
+      "subtle_glow": "radial-gradient(circle at center, rgba(37,99,235,0.15) 0%, rgba(0,0,0,0) 70%)",
+      "surface_fade": "linear-gradient(to bottom, rgba(10,10,10,0) 0%, #0A0A0A 100%)"
+    }
+  },
+  "layout_system": {
+    "container": {
+      "default": "max-w-7xl mx-auto px-6 md:px-12",
+      "narrow": "max-w-3xl mx-auto px-6"
+    },
+    "spacing": {
+      "section_gap": "py-24 md:py-32",
+      "element_gap": "gap-8"
+    },
+    "grid": {
+      "bento_main": "grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-4 md:gap-6",
+      "product_grid": "grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-x-8 gap-y-12"
+    }
+  },
+  "components": {
+    "buttons": {
+      "primary": "bg-white text-black rounded-full px-8 py-3 font-medium hover:scale-105 transition-transform active:scale-95",
+      "secondary": "bg-zinc-800 text-white rounded-full px-6 py-2 font-medium hover:bg-zinc-700 transition-colors",
+      "ghost": "text-zinc-400 hover:text-white transition-colors"
+    },
+    "cards": {
+      "product": "group relative bg-transparent hover:bg-zinc-900/30 transition-colors rounded-2xl p-4 border border-transparent hover:border-zinc-800",
+      "feature": "bg-zinc-900/50 backdrop-blur-md border border-zinc-800 rounded-3xl p-8 hover:border-zinc-700 transition-all"
+    },
+    "inputs": {
+      "default": "bg-transparent border-b border-zinc-800 focus:border-white text-white px-0 py-3 focus:outline-none placeholder:text-zinc-600 transition-colors"
+    },
+    "navigation": {
+      "bar": "fixed top-4 left-1/2 -translate-x-1/2 bg-black/80 backdrop-blur-xl border border-white/10 rounded-full px-6 py-3 flex items-center gap-8 z-50 shadow-2xl shadow-black/50"
+    }
+  },
+  "visual_enhancers": {
+    "glassmorphism": "backdrop-blur-xl bg-black/40 border border-white/5",
+    "noise_texture": "url('data:image/svg+xml,...')", 
+    "glow_effects": "shadow-[0_0_40px_-10px_rgba(255,255,255,0.1)]",
+    "animations": {
+      "fade_in": "animate-in fade-in duration-700",
+      "slide_up": "animate-in slide-in-from-bottom-8 duration-700",
+      "hover_lift": "transition-transform duration-300 hover:-translate-y-1"
+    }
+  },
+  "image_urls": {
+    "hero": [
+      {
+        "url": "https://images.unsplash.com/photo-1605170876472-db58e15c430e?crop=entropy&cs=srgb&fm=jpg&q=85",
+        "alt": "Dark minimalist headphones hero",
+        "category": "hero"
+      }
+    ],
+    "products": {
+      "sneakers": [
+        "https://images.unsplash.com/photo-1770795945641-b05670167c8f?crop=entropy&cs=srgb&fm=jpg&q=85"
+      ],
+      "perfumes": [
+        "https://images.unsplash.com/photo-1561997837-ad5a1641dbd7?crop=entropy&cs=srgb&fm=jpg&q=85",
+        "https://images.unsplash.com/photo-1630512873749-85ccf5bb1678?crop=entropy&cs=srgb&fm=jpg&q=85"
+      ],
+      "audio": [
+        "https://images.unsplash.com/photo-1744591433649-28069739f80b?crop=entropy&cs=srgb&fm=jpg&q=85",
+        "https://images.unsplash.com/photo-1664470740442-f5de3e512e8b?crop=entropy&cs=srgb&fm=jpg&q=85"
+      ],
+      "apparel": [
+        "https://images.unsplash.com/photo-1644483878398-b57d19f84ff8?crop=entropy&cs=srgb&fm=jpg&q=85",
+        "https://images.unsplash.com/photo-1590759483822-b2fee5aa6bd3?crop=entropy&cs=srgb&fm=jpg&q=85"
+      ],
+       "watches": [
+        "https://images.unsplash.com/photo-1623672482674-a525831dc7a8?crop=entropy&cs=srgb&fm=jpg&q=85"
+      ]
+    }
+  },
+  "instructions_to_main_agent": [
+    "1. THEME: Force DARK MODE. Do not implement a light mode toggle unless explicitly asked. The brand is 'Midnight Only'.",
+    "2. IMAGES: Use large, immersive product imagery. The product is the hero.",
+    "3. TYPOGRAPHY: Use 'Space Grotesk' for all headings to establish the streetwear vibe. Use 'Inter' for body text for readability.",
+    "4. COMPONENTS: heavily customize Shadcn components. Remove default borders and backgrounds. Use the 'Glassmorphism' style for panels.",
+    "5. SPACING: Use generous padding (py-24, py-32) between sections. Do not clutter.",
+    "6. INTERACTIONS: Add smooth hover states to everything. Products should scale up slightly on hover.",
+    "7. NAVIGATION: Implement a floating, pill-shaped navigation bar instead of a standard top header."
+  ],
+  "UNIVERSAL_GUIDELINES": [
+    "Do not use generic gradients.",
+    "Ensure 3:1 contrast for all text.",
+    "Use 'data-testid' for all interactive elements.",
+    "Mobile-first responsive design is mandatory.",
+    "Use 'lucide-react' for icons."
+  ]
+}
